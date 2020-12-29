@@ -75,7 +75,7 @@ private BufferedImage img;
         }
     }
 	public static void main(String[] args) {
-		TrimImage trim = new TrimImage(new File("not-trimmed.png"));// TODO Add a transparent png image, can be found in my react demo
+		TrimImage trim = new TrimImage(new File("not-trimmed.png"));// TODO Add a transparent png image, can be found in this file or my react demo
         trim.trim();
         trim.write(new File("trimmedImg.png"));
     }
