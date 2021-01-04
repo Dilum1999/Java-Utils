@@ -64,7 +64,6 @@ public class Filestamper implements Serializable {
 	String sourceFileName;
 	Date timestamp;
     boolean biLevelImage = true;
-   // static float [] imageVerticleDpi;
    
     public static Date autoFileStampCSWgrpsStartDate, autoFilestampNonCSStartDate;
     public static String CS_WKGRP_CODE = "CS";
@@ -134,7 +133,6 @@ public class Filestamper implements Serializable {
 		for (Iterator iterator = tiffPages.iterator(); iterator.hasNext();) {
 			PlanarImage planarImage = (PlanarImage) iterator.next();
 			page = planarImage.getAsBufferedImage();
-			//float pagePixelSizeMM = imageVerticleDpi[i];
 			if (page.getType() != BufferedImage.TYPE_BYTE_BINARY)
 				biLevelImage = false;
 			if (firstPage) {
@@ -354,7 +352,6 @@ public class Filestamper implements Serializable {
 	public static void main(String[] args) throws Exception {
 		String fileName = "sample.tiff";//TODO Change the file name to match a given TIFF file
 		Filestamper stamper = new Filestamper(getFile(fileName));
-		//imageVerticleDpi = getHorizontalPixelSizeMMOfTiffs(fileName);
 		byte[] stamped = stamper.applyFilestampLocal(new Date(System.currentTimeMillis()));
 		FileOutputStream out = new FileOutputStream(new File(fileName + "out" + ".tiff"));
 		out.write(stamped);
@@ -373,40 +370,5 @@ public class Filestamper implements Serializable {
         }
         return byteArray;
     }
-    
-//    public static float[] getHorizontalPixelSizeMMOfTiffs (String fileName) throws IOException {
-//    	File file = new File(fileName);
-//    	ImageInputStream stream = ImageIO.createImageInputStream(file);
-//        Iterator<ImageReader> readers = ImageIO.getImageReaders(stream);
-//        float horizontalPixelSizeMM = 0;
-//        float[] verticleDpi = null;
-//        if (readers.hasNext()) {
-//            ImageReader reader = readers.next();
-//            reader.setInput(stream);
-//            int numOfImg = reader.getNumImages(true);
-//            verticleDpi = new float[numOfImg];
-//            for(int i = 0; i < numOfImg; i++) {
-//                IIOMetadata metadata = reader.getImageMetadata(i);
-//                IIOMetadataNode standardTree = (IIOMetadataNode) metadata.getAsTree(IIOMetadataFormatImpl.standardMetadataFormatName);
-//                IIOMetadataNode dimension = (IIOMetadataNode) standardTree.getElementsByTagName("Dimension").item(0);
-//                horizontalPixelSizeMM = getPixelSizeMM(dimension, "HorizontalPixelSize");
-//                verticleDpi[i] = horizontalPixelSizeMM;
-//            }
-//            reader.dispose();
-//
-//        }
-//        else {
-//            System.err.printf("Could not read %s\n", file);
-//        }
-//        
-//        return verticleDpi;
-//    }
-    
-    
-//    public static float getPixelSizeMM(final IIOMetadataNode dimension, final String elementName) {
-//        NodeList pixelSizes = dimension.getElementsByTagName(elementName);
-//        IIOMetadataNode pixelSize = pixelSizes.getLength() > 0 ? (IIOMetadataNode) pixelSizes.item(0) : null;
-//        return pixelSize != null ? Float.parseFloat(pixelSize.getAttribute("value")) : -1;
-//    }
 
 }
