@@ -1,4 +1,5 @@
 package com.ibm.courts.img;
+
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -21,6 +22,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.Serializable;
 import java.sql.Date;
 import java.text.SimpleDateFormat;
@@ -29,8 +31,14 @@ import java.util.Iterator;
 import java.util.List;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.metadata.IIOMetadata;
+import javax.imageio.metadata.IIOMetadataFormatImpl;
+import javax.imageio.metadata.IIOMetadataNode;
+import javax.imageio.stream.ImageInputStream;
 import javax.media.jai.PlanarImage;
 
+import org.w3c.dom.*;
 import com.sun.media.jai.codec.ImageCodec;
 import com.sun.media.jai.codec.ImageDecoder;
 import com.sun.media.jai.codec.ImageEncoder;
@@ -41,21 +49,22 @@ import com.sun.media.jai.codec.TIFFEncodeParam;
 
 public class Filestamper implements Serializable {
 
+	private static final long serialVersionUID = -2549579248311948013L;
+	static final String CRICUIT_CLERK_OWNER = "CIRCUIT CLERK";
+	static final String SOFTWARE_CATEGORY_TYPE = "SOFTWARE";
+	static final String NO_FILESTAMP_IF_TICKET_CATEGORY = "NO_FILESTAMP_IF_TICKET";
+	static final String NO_FILESTAMP_CATEGORY = "NO_FILESTAMP";
+	static final String SW_CASE_TYPE = "SW";
+	static final String AO_CASE_TYPE = "AO";
+	static final String NON_CASE_CATEGORY = "NONCASE";
+	static final String CRIMINAL_CATEGORY = "CRIMINAL";
 
-static final String CRICUIT_CLERK_OWNER = "CIRCUIT CLERK";
-    static final String SOFTWARE_CATEGORY_TYPE = "SOFTWARE";
-    static final String NO_FILESTAMP_IF_TICKET_CATEGORY = "NO_FILESTAMP_IF_TICKET";
-    static final String NO_FILESTAMP_CATEGORY = "NO_FILESTAMP";
-static final String SW_CASE_TYPE = "SW";
-static final String AO_CASE_TYPE = "AO";
-static final String NON_CASE_CATEGORY = "NONCASE";
-static final String CRIMINAL_CATEGORY = "CRIMINAL";
-
-byte[] imageContents;
-List<PlanarImage> tiffPages;
-String sourceFileName;
-Date timestamp;
+	byte[] imageContents;
+	List<PlanarImage> tiffPages;
+	String sourceFileName;
+	Date timestamp;
     boolean biLevelImage = true;
+   // static float [] imageVerticleDpi;
    
     public static Date autoFileStampCSWgrpsStartDate, autoFilestampNonCSStartDate;
     public static String CS_WKGRP_CODE = "CS";
@@ -63,189 +72,191 @@ Date timestamp;
     public static byte[] CLERK_SIGNATURE;
    
     public enum StampDirective{
-    FileStamp,
-    DoNotFileStamp,
-    FileStampIfLetterSize
+	    FileStamp,
+	    DoNotFileStamp,
+	    FileStampIfLetterSize
     }
 
     public Filestamper(String fileName){
-    sourceFileName = fileName;
-    initialize();
+	    sourceFileName = fileName;
+	    initialize();
     }
    
     public Filestamper(byte[] tiffContents){
-    imageContents = tiffContents;
-    initialize();
+	    imageContents = tiffContents;
+	    initialize();
     }
    
     public Filestamper(List<PlanarImage> pages){
-    tiffPages = pages;
-    initialize();
+	    tiffPages = pages;
+	    initialize();
     }
+    
    
     protected static void initialize(){
-   
-   
-    try{
-    if (CLERK_SIGNATURE == null)
-    CLERK_SIGNATURE = //TODO Load a signature file here;
-    }catch(Exception ex){
-   
-    };
+	    try{
+		    if (CLERK_SIGNATURE == null)
+		    CLERK_SIGNATURE = getFile("sign.png");//TODO Load a signature file here;
+	    }catch(Exception ex){
+	   
+	    };
     }
    
-public boolean isLetterSizePage() {
-try {
-loadImagePages();
+    public boolean isLetterSizePage() {	
+    	try {
+    		loadImagePages();
 
-if (!tiffPages.isEmpty()) {
-PlanarImage planarImage = tiffPages.get(0);
-return letterSizePage(planarImage);
-}
-} catch (Exception ex) {
+			if (!tiffPages.isEmpty()) {
+				PlanarImage planarImage = tiffPages.get(0);
+				return letterSizePage(planarImage);
+			}
+		} catch (Exception ex) {
+			
+			}
+    	return false;
 
-}
-return false;
-
-}
+    }
 
    
     public byte[] applyFilestampLocal(Date date)throws Exception{
-    timestamp = date;
-    List<BufferedImage> pages = processImage();
-    return writeIntoATiff(pages);
+	    timestamp = date;
+	    List<BufferedImage> pages = processImage();
+	    return writeIntoATiff(pages);
     }
    
-public List<BufferedImage> processImage() throws Exception {
+	public List<BufferedImage> processImage() throws Exception {
+	
+		loadImagePages();
+		int i = 0;
+		boolean firstPage = true;
+		BufferedImage page;
+		List<BufferedImage> outPages = new ArrayList<BufferedImage>();
+		for (Iterator iterator = tiffPages.iterator(); iterator.hasNext();) {
+			PlanarImage planarImage = (PlanarImage) iterator.next();
+			page = planarImage.getAsBufferedImage();
+			//float pagePixelSizeMM = imageVerticleDpi[i];
+			if (page.getType() != BufferedImage.TYPE_BYTE_BINARY)
+				biLevelImage = false;
+			if (firstPage) {
+				page = applyFilestamp(page);
+				if (biLevelImage)
+				page = convertToGrayScale(page);
+				firstPage = false;
+			}
+			i++;
+			outPages.add(page);
+		}
+		return outPages;
+	}
+	
+	private boolean letterSizePage(PlanarImage page){
+		int w = page.getWidth();
+		int h = page.getHeight();
+		if (page.getWidth() > page.getHeight()){
+			h = page.getWidth();
+			w = page.getHeight();
+		}
+		float ratio = ((float)h/(float)w);
+		return (ratio > 1.22 && ratio < 1.35);
+	}
+	   
+	public  void loadImagePages()
+	throws Exception {
+		if (tiffPages != null)
+			return ;
+	
+		SeekableStream s ;
+		FileInputStream inputStream = null;
+		if (sourceFileName != null && new File(sourceFileName).exists()){
+			inputStream = new FileInputStream(sourceFileName);
+			s = SeekableStream.wrapInputStream(inputStream, true);
+		}else{
+			s = SeekableStream.wrapInputStream(new ByteArrayInputStream(imageContents), true);
+		}
+		
+		ParameterBlock pb = new ParameterBlock();
+		pb.add(s);
+		ImageDecoder dec = ImageCodec.createImageDecoder("tiff", s, null);
+		int count = dec.getNumPages();
+		tiffPages = new ArrayList<PlanarImage>();
+		for (int i = 0; i < count; i++) {
+			RenderedImage page = dec.decodeAsRenderedImage(i);
+			tiffPages.add(PlanarImage.wrapRenderedImage(page));
+		}
+		if (inputStream != null){
+			inputStream.close();
+		}
+	}
 
-loadImagePages();
-
-boolean firstPage = true;
-BufferedImage page;
-List<BufferedImage> outPages = new ArrayList<BufferedImage>();
-for (Iterator iterator = tiffPages.iterator(); iterator.hasNext();) {
-PlanarImage planarImage = (PlanarImage) iterator.next();
-page = planarImage.getAsBufferedImage();
-if (page.getType() != BufferedImage.TYPE_BYTE_BINARY)
-biLevelImage = false;
-if (firstPage) {
-page = applyFilestamp(page);
-if (biLevelImage)
-page = convertToGrayScale(page);
-firstPage = false;
-}
-outPages.add(page);
-}
-return outPages;
-}
-
-private boolean letterSizePage(PlanarImage page){
-int w = page.getWidth();
-int h = page.getHeight();
-if (page.getWidth() > page.getHeight()){
-h = page.getWidth();
-w = page.getHeight();
-}
-float ratio = ((float)h/(float)w);
-return (ratio > 1.22 && ratio < 1.35);
-}
+	private  BufferedImage applyFilestamp(BufferedImage image) throws IOException {
+	   
+	    BufferedImage img = image;
+	    if (biLevelImage)
+	    img = convert(img);
+	    Graphics2D g2d = img.createGraphics();
+	    int width = img.getWidth();
+	    int height = img.getHeight();
+	    int[][] array = new int[width][height];
+	    BufferedImage imgBnW;
+	    if (biLevelImage)
+	    imgBnW = image;
+	    else
+	    imgBnW = convertToGrayScale(img);
+	    for(int i = width * 2/3; i < width; i++){
+	    	for(int j = 0; j < height/3 ; j++){
+	    		array[i][j] = imgBnW.getRGB(i, j);
+	        }
+	    }
    
-public  void loadImagePages()
-throws Exception {
-if (tiffPages != null)
-return ;
-
-SeekableStream s ;
-FileInputStream inputStream = null;
-if (sourceFileName != null && new File(sourceFileName).exists()){
-inputStream = new FileInputStream(sourceFileName);
-s = SeekableStream.wrapInputStream(inputStream, true);
-}else{
-s = SeekableStream.wrapInputStream(new ByteArrayInputStream(imageContents), true);
-}
-
-ParameterBlock pb = new ParameterBlock();
-pb.add(s);
-ImageDecoder dec = ImageCodec.createImageDecoder("tiff", s, null);
-int count = dec.getNumPages();
-tiffPages = new ArrayList<PlanarImage>();
-for (int i = 0; i < count; i++) {
-RenderedImage page = dec.decodeAsRenderedImage(i);
-tiffPages.add(PlanarImage.wrapRenderedImage(page));
-}
-if (inputStream != null){
-inputStream.close();
-}
-}
-
-private  BufferedImage applyFilestamp(BufferedImage image) {
-   
-    BufferedImage img = image;
-    if (biLevelImage)
-    img = convert(img);
-    Graphics2D g2d = img.createGraphics();
-    int width = img.getWidth();
-    int height = img.getHeight();
-   
-    int[][] array = new int[width][height];
-    BufferedImage imgBnW;
-    if (biLevelImage)
-    imgBnW = image;
-    else
-    imgBnW = convertToGrayScale(img);
-    for(int i = width * 2/3; i < width; i++){
-for(int j = 0; j < height/3 ; j++){
-        array[i][j] = imgBnW.getRGB(i, j);
-        }
-}
-   
-    BufferedImage fileStamp600x600 = createFilestamp();
-        BufferedImage fileStamp = scale(fileStamp600x600, (float)width/2600f);
-       
+	    BufferedImage fileStamp600x600 = createFilestamp();
+        ////////////////////// If statement below will fix the issue
+		float scaleSize = width/2600f;
+		if(scaleSize > 1)
+			scaleSize = 1;
+        BufferedImage fileStamp = scale(fileStamp600x600, scaleSize);
         int fileStampWidth = fileStamp.getWidth()*width/2600;
         int fileStampHeight = fileStamp.getHeight()*width/2600;
-       
-    int count = 0;
-    int tmpCount = 0;
-    int[] cordinates = new int[2];
-    for(int x = width * 2/3; x < width - fileStampWidth;) {
-    for(int y = 0; y < height/3 - fileStampHeight;) {
-    count = getWhitePixelCount(array,x,y,fileStampWidth,fileStampHeight);
-    if(count > tmpCount) {
-    tmpCount = count;
-    cordinates[0] = x;
-    cordinates[1] = y;
-    }
-    y = y + 10;
-    }
-    x = x + 10;
-    }
-   
-    int x = cordinates[0];
-    int y = cordinates[1];
-   
+	    int count = 0;
+	    int tmpCount = 0;
+	    int[] cordinates = new int[2];
+	    for(int x = width * 2/3; x < width - fileStampWidth;) {
+		    for(int y = 0; y < height/3 - fileStampHeight;) {
+			    count = getWhitePixelCount(array,x,y,fileStampWidth,fileStampHeight);
+			    if(count > tmpCount) {
+				    tmpCount = count;
+				    cordinates[0] = x;
+				    cordinates[1] = y;
+			    }
+		    	y = y + 10;
+		    }
+		    x = x + 10;
+	    }
+	   
+	    int x = cordinates[0];
+	    int y = cordinates[1];
+	   
        
         g2d.drawImage(fileStamp, x, y, null);
         g2d.dispose();
         return img;
-}
+	}
 
    
     public  byte[] writeIntoATiff(List<BufferedImage> pages)throws Exception{
-TIFFEncodeParam params = new TIFFEncodeParam();
-if (biLevelImage)
-params.setCompression(TIFFEncodeParam.COMPRESSION_GROUP4);//TODO
-else
-params.setCompression(TIFFEncodeParam.COMPRESSION_DEFLATE);
+		TIFFEncodeParam params = new TIFFEncodeParam();
+		if (biLevelImage)
+			params.setCompression(TIFFEncodeParam.COMPRESSION_GROUP4);//TODO
+		else
+			params.setCompression(TIFFEncodeParam.COMPRESSION_DEFLATE);
 
-ByteArrayOutputStream out = new ByteArrayOutputStream();
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
         ImageEncoder encoder = ImageCodec.createImageEncoder("tiff", out, params);
         Iterator pagesIt = pages.iterator();
         pagesIt.next();
         params.setExtraImages(pagesIt);
         encoder.encode(pages.get(0));
         out.close();
-        return out.toByteArray();
+	    return out.toByteArray();
     }
    
 
@@ -264,44 +275,44 @@ ByteArrayOutputStream out = new ByteArrayOutputStream();
     }
    
     public  BufferedImage scale(BufferedImage before, float scale){
-    int w = before.getWidth();
-    int h = before.getHeight();
-    BufferedImage after = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-    AffineTransform at = new AffineTransform();
-    at.scale(scale, scale);
-    AffineTransformOp scaleOp =
-      new AffineTransformOp(at, AffineTransformOp.TYPE_BILINEAR);
-    after = scaleOp.filter(before, after);
-    return after;
+		int w = before.getWidth();
+		int h = before.getHeight();
+		BufferedImage after = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+		AffineTransform at = new AffineTransform();
+		at.scale(scale, scale);
+		AffineTransformOp scaleOp =
+		  new AffineTransformOp(at, AffineTransformOp.TYPE_BILINEAR);
+		after = scaleOp.filter(before, after);
+		return after;
     }
    
-private  BufferedImage convertToGrayScale(BufferedImage image) {
-final BufferedImage grayImage = new BufferedImage(image.getWidth(null),
-image.getHeight(null), BufferedImage.TYPE_BYTE_BINARY);
-final Graphics2D g = (Graphics2D) grayImage.getGraphics();
-g.drawImage(image, 0, 0, null);
-g.dispose();
-return grayImage;
-}
+	private  BufferedImage convertToGrayScale(BufferedImage image) {
+		final BufferedImage grayImage = new BufferedImage(image.getWidth(null),
+		image.getHeight(null), BufferedImage.TYPE_BYTE_BINARY);
+		final Graphics2D g = (Graphics2D) grayImage.getGraphics();
+		g.drawImage(image, 0, 0, null);
+		g.dispose();
+		return grayImage;
+	}
 
     private  int getWhitePixelCount(int[][] array, int x, int y, int width, int height) {
-    int count = 0;
-    for(int i = x; i < x + width;i++){
-    for(int j = y; j < y + height; j++){
-    if(array[i][j]==-1){
-    count++;
-    }
-    }
-    }
-    return count;
+	    int count = 0;
+	    for(int i = x; i < x + width;i++){
+		    for(int j = y; j < y + height; j++){
+			    if(array[i][j]==-1){
+			    	count++;
+			    }
+		    }
+	    }
+	    return count;
     }
    
 
    
    
     public  BufferedImage createFilestamp(){
-    int width = 600, height = 600;
-    BufferedImage bufferedImage = new BufferedImage(width, height,
+    	int width = 600, height = 600;
+    	BufferedImage bufferedImage = new BufferedImage(width, height,
                 BufferedImage.TYPE_INT_ARGB);
 
         // Create a graphics contents on the buffered image
@@ -313,14 +324,14 @@ return grayImage;
         // Draw graphics
         g2d.setComposite(AlphaComposite.Src);
         try{
-        g2d.drawImage(ImageIO.read(new ByteArrayInputStream(CLERK_SIGNATURE)), 25, 200, null);
+        	g2d.drawImage(ImageIO.read(new ByteArrayInputStream(CLERK_SIGNATURE)), 25, 200, null);
         }catch(Exception ex){
-        ex.printStackTrace();
+        	ex.printStackTrace();
         }
         if (!biLevelImage)
-        g2d.setColor(new Color(0,0,.8f,0.5f));
+        	g2d.setColor(new Color(0,0,.8f,0.5f));
         else
-        g2d.setColor(new Color(0,0,0));//TODO
+	        g2d.setColor(new Color(0,0,0));//TODO
         g2d.setStroke(new BasicStroke(2));
         g2d.drawRect(5, 5, 590, 590);
         g2d.setFont( new Font("Arial Narrow", Font.BOLD, 120));
@@ -340,15 +351,16 @@ return grayImage;
     }
    
 
-public static void main(String[] args) throws Exception {
-String fileName = "2019TR100656.TIFF.tiff";//TODO Change the file name to match a given TIFF file
-Filestamper stamper = new Filestamper(getFile(fileName));
-byte[] stamped = stamper.applyFilestampLocal(new Date(System.currentTimeMillis()));
-FileOutputStream out = new FileOutputStream(new File(fileName + "out" + ".tiff"));
-out.write(stamped);
-out.close();
-
-}
+	public static void main(String[] args) throws Exception {
+		String fileName = "sample.tiff";//TODO Change the file name to match a given TIFF file
+		Filestamper stamper = new Filestamper(getFile(fileName));
+		//imageVerticleDpi = getHorizontalPixelSizeMMOfTiffs(fileName);
+		byte[] stamped = stamper.applyFilestampLocal(new Date(System.currentTimeMillis()));
+		FileOutputStream out = new FileOutputStream(new File(fileName + "out" + ".tiff"));
+		out.write(stamped);
+		out.close();
+		
+	}
 
     public static byte[] getFile(String fileName) throws Exception
     {
@@ -357,9 +369,44 @@ out.close();
         byte[] byteArray=new byte[streamer.available()];
         for(int j=0; j<byteArray.length; j++)
         {
-        byteArray[j]=(byte)streamer.read();
+        	byteArray[j]=(byte)streamer.read();
         }
         return byteArray;
     }
+    
+//    public static float[] getHorizontalPixelSizeMMOfTiffs (String fileName) throws IOException {
+//    	File file = new File(fileName);
+//    	ImageInputStream stream = ImageIO.createImageInputStream(file);
+//        Iterator<ImageReader> readers = ImageIO.getImageReaders(stream);
+//        float horizontalPixelSizeMM = 0;
+//        float[] verticleDpi = null;
+//        if (readers.hasNext()) {
+//            ImageReader reader = readers.next();
+//            reader.setInput(stream);
+//            int numOfImg = reader.getNumImages(true);
+//            verticleDpi = new float[numOfImg];
+//            for(int i = 0; i < numOfImg; i++) {
+//                IIOMetadata metadata = reader.getImageMetadata(i);
+//                IIOMetadataNode standardTree = (IIOMetadataNode) metadata.getAsTree(IIOMetadataFormatImpl.standardMetadataFormatName);
+//                IIOMetadataNode dimension = (IIOMetadataNode) standardTree.getElementsByTagName("Dimension").item(0);
+//                horizontalPixelSizeMM = getPixelSizeMM(dimension, "HorizontalPixelSize");
+//                verticleDpi[i] = horizontalPixelSizeMM;
+//            }
+//            reader.dispose();
+//
+//        }
+//        else {
+//            System.err.printf("Could not read %s\n", file);
+//        }
+//        
+//        return verticleDpi;
+//    }
+    
+    
+//    public static float getPixelSizeMM(final IIOMetadataNode dimension, final String elementName) {
+//        NodeList pixelSizes = dimension.getElementsByTagName(elementName);
+//        IIOMetadataNode pixelSize = pixelSizes.getLength() > 0 ? (IIOMetadataNode) pixelSizes.item(0) : null;
+//        return pixelSize != null ? Float.parseFloat(pixelSize.getAttribute("value")) : -1;
+//    }
 
 }
